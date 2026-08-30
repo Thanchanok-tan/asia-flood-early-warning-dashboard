@@ -1,0 +1,22 @@
+{
+    "model_name": "Logistic Regression",
+    "optimal_threshold": 0.7,
+    "alert_levels": {
+        "Normal (Green)": [
+            0.0,
+            0.46
+        ],
+        "Warning (Yellow)": [
+            0.46,
+            0.7
+        ],
+        "Severe (Orange)": [
+            0.7,
+            0.92
+        ],
+        "Critical (Red)": [
+            0.92,
+            1.0
+        ]
+    }
+}
