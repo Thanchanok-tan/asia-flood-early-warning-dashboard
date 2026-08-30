@@ -20,7 +20,7 @@ def load_dataset():
         st.error(f"Dataset not found at {path}. Please run `python scripts/generate_data_and_model.py` first.")
         return pd.DataFrame()
     
-    df = pd.read_csv(path)
+    df = pd.read_parquet(path)
     df["date"] = pd.to_datetime(df["date"])
     return df
 
