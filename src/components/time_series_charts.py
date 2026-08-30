@@ -20,34 +20,37 @@ def render_dual_axis_chart(df: pd.DataFrame, lang: str):
         return
 
     # Group by date for smooth aggregate trend
-    ts_df = df.groupby("date")[["rainfall_mm", "river_level_m", "flood_risk_score"]].mean().reset_index()
+    numeric_cols = [col for col in ["rainfall_mm", "river_level_m", "flood_risk_score"] if col in df.columns]
+    ts_df = df.groupby("date")[numeric_cols].mean().reset_index()
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
     # Bar chart for rainfall
-    fig.add_trace(
-        go.Bar(
-            x=ts_df["date"],
-            y=ts_df["rainfall_mm"],
-            name=get_text(lang, "chart_rainfall_axis"),
-            marker_color="rgba(59, 130, 246, 0.5)",
-            hovertemplate="%{x|%Y-%m-%d}<br>Rainfall: %{y:.1f} mm<extra></extra>"
-        ),
-        secondary_y=False
-    )
+    if "rainfall_mm" in ts_df.columns:
+        fig.add_trace(
+            go.Bar(
+                x=ts_df["date"],
+                y=ts_df["rainfall_mm"],
+                name=get_text(lang, "chart_rainfall_axis"),
+                marker_color="rgba(59, 130, 246, 0.5)",
+                hovertemplate="%{x|%Y-%m-%d}<br>Rainfall: %{y:.1f} mm<extra></extra>"
+            ),
+            secondary_y=False
+        )
 
     # Line chart for river level
-    fig.add_trace(
-        go.Scatter(
-            x=ts_df["date"],
-            y=ts_df["river_level_m"],
-            name=get_text(lang, "chart_river_axis"),
-            mode="lines",
-            line=dict(color="#EF4444", width=2.5),
-            hovertemplate="%{x|%Y-%m-%d}<br>River Gauge: %{y:.2f} m<extra></extra>"
-        ),
-        secondary_y=True
-    )
+    if "river_level_m" in ts_df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=ts_df["date"],
+                y=ts_df["river_level_m"],
+                name=get_text(lang, "chart_river_axis"),
+                mode="lines",
+                line=dict(color="#EF4444", width=2.5),
+                hovertemplate="%{x|%Y-%m-%d}<br>River Gauge: %{y:.2f} m<extra></extra>"
+            ),
+            secondary_y=True
+        )
 
     fig.update_xaxes(title_text="Date")
     fig.update_yaxes(title_text=get_text(lang, "chart_rainfall_axis"), secondary_y=False, showgrid=True)
@@ -66,17 +69,22 @@ def render_basin_boxplot(df: pd.DataFrame, lang: str):
     """Render basin-wise risk distribution boxplots with threshold lines."""
     st.subheader(get_text(lang, "analytics_boxplot"))
 
-    if df.empty:
+    if df.empty or "basin" not in df.columns:
+        return
+
+    # Check which target/risk column is available
+    y_col = "flood_risk_score" if "flood_risk_score" in df.columns else "predicted_flood_proba"
+    if y_col not in df.columns:
         return
 
     fig = px.box(
         df,
         x="basin",
-        y="flood_risk_score",
+        y=y_col,
         color="basin",
         points="outliers",
         height=420,
-        labels={"basin": "Basin", "flood_risk_score": "Flood Risk Score"}
+        labels={"basin": "Basin", y_col: "Flood Risk"}
     )
 
     # Add alert threshold horizontal lines
@@ -86,8 +94,7 @@ def render_basin_boxplot(df: pd.DataFrame, lang: str):
 
     fig.update_layout(
         showlegend=False,
-        margin=dict(l=20, r=20, t=30, b=40),
-        yaxis=dict(range=[0, 1.05])
+        margin=dict(l=20, r=20, t=30, b=40)
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -99,10 +106,28 @@ def render_correlation_heatmap(df: pd.DataFrame, lang: str):
     if df.empty:
         return
 
-    num_cols = ["rainfall_mm", "river_level_m", "soil_moisture_percent", "temperature_c", "flood_risk_score"]
-    corr = df[num_cols].corr()
+    # Map possible column names to labels dynamically to avoid KeyError
+    col_mapping = {
+        "rainfall_mm": "Rainfall (mm)",
+        "river_level_m": "River Level (m)",
+        "soil_moisture_percent": "Soil Moisture (%)",
+        "temperature_celsius": "Temp (°C)",
+        "temperature_c": "Temp (°C)",
+        "flood_risk_score": "Flood Risk",
+        "predicted_flood_proba": "Predicted Risk"
+    }
 
-    labels = ["Rainfall (mm)", "River Level (m)", "Soil Moisture (%)", "Temp (°C)", "Flood Risk"]
+    available_cols = [col for col in col_mapping.keys() if col in df.columns]
+
+    if len(available_cols) < 2:
+        available_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+
+    if len(available_cols) < 2:
+        st.info("Not enough numeric columns for correlation analysis.")
+        return
+
+    corr = df[available_cols].corr()
+    labels = [col_mapping.get(c, c) for c in available_cols]
 
     fig = px.imshow(
         corr,
@@ -124,15 +149,28 @@ def render_seasonal_lag_chart(df: pd.DataFrame, lang: str):
     if df.empty:
         return
 
-    monthly = df.groupby("month")[["rainfall_mm", "river_level_m", "soil_moisture_percent"]].mean().reset_index()
+    # Extract month if not available
+    plot_df = df.copy()
+    if "month" not in plot_df.columns and "date" in plot_df.columns:
+        plot_df["month"] = pd.to_datetime(plot_df["date"]).dt.month
+
+    if "month" not in plot_df.columns:
+        return
+
+    num_cols = [col for col in ["rainfall_mm", "river_level_m", "soil_moisture_percent"] if col in plot_df.columns]
+    monthly = plot_df.groupby("month")[num_cols].mean().reset_index()
+    
     month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    monthly["month_name"] = monthly["month"].apply(lambda m: month_names[m-1])
+    monthly["month_name"] = monthly["month"].apply(lambda m: month_names[int(m)-1] if 1 <= int(m) <= 12 else str(m))
 
     fig = go.Figure()
 
-    fig.add_trace(go.Scatter(x=monthly["month_name"], y=monthly["rainfall_mm"], name="Avg Rainfall (mm)", mode="lines+markers", line=dict(color="#2563EB", width=3)))
-    fig.add_trace(go.Scatter(x=monthly["month_name"], y=monthly["river_level_m"] * 10, name="River Gauge (m x10)", mode="lines+markers", line=dict(color="#DC2626", width=3, dash="dot")))
-    fig.add_trace(go.Scatter(x=monthly["month_name"], y=monthly["soil_moisture_percent"], name="Soil Moisture (%)", mode="lines+markers", line=dict(color="#059669", width=2)))
+    if "rainfall_mm" in monthly.columns:
+        fig.add_trace(go.Scatter(x=monthly["month_name"], y=monthly["rainfall_mm"], name="Avg Rainfall (mm)", mode="lines+markers", line=dict(color="#2563EB", width=3)))
+    if "river_level_m" in monthly.columns:
+        fig.add_trace(go.Scatter(x=monthly["month_name"], y=monthly["river_level_m"] * 10, name="River Gauge (m x10)", mode="lines+markers", line=dict(color="#DC2626", width=3, dash="dot")))
+    if "soil_moisture_percent" in monthly.columns:
+        fig.add_trace(go.Scatter(x=monthly["month_name"], y=monthly["soil_moisture_percent"], name="Soil Moisture (%)", mode="lines+markers", line=dict(color="#059669", width=2)))
 
     fig.update_layout(
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
