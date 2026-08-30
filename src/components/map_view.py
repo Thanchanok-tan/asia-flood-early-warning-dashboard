@@ -18,6 +18,9 @@ def render_map_view(df: pd.DataFrame, lang: str):
     # Create size metric proportional to risk score & river level
     latest_df["marker_size"] = latest_df["river_level_m"] * 2.5 + latest_df["flood_risk_score"] * 15
 
+    # Format date string safely
+    date_str = latest_df["date"].dt.strftime("%Y-%m-%d") if hasattr(latest_df["date"], "dt") else latest_df["date"].astype(str)
+
     # Hover text styling
     latest_df["hover_info"] = (
         "<b>" + latest_df["station_name"] + "</b><br>" +
@@ -29,11 +32,11 @@ def render_map_view(df: pd.DataFrame, lang: str):
         get_text(lang, "hover_rainfall") + ": " + latest_df["rainfall_mm"].astype(str) + " mm<br>" +
         get_text(lang, "hover_river") + ": " + latest_df["river_level_m"].astype(str) + " m<br>" +
         get_text(lang, "hover_soil") + ": " + latest_df["soil_moisture_percent"].astype(str) + " %<br>" +
-        get_text(lang, "hover_date") + ": " + latest_df["date"].dt.strftime("%Y-%m-%d")
+        get_text(lang, "hover_date") + ": " + date_str
     )
 
-    fig = px.scatter_mapbox(
-        latest_df,
+    common_kwargs = dict(
+        data_frame=latest_df,
         lat="latitude",
         lon="longitude",
         color="severity_level",
@@ -43,9 +46,20 @@ def render_map_view(df: pd.DataFrame, lang: str):
         hover_data={"hover_info": True, "latitude": False, "longitude": False, "marker_size": False, "severity_level": False},
         zoom=3.8,
         center={"lat": 20.0, "lon": 98.0},
-        mapbox_style="open-street-map",
         height=580
     )
+
+    # Compatibility check for Plotly v6.0+ (scatter_map) vs Plotly v5.x (scatter_mapbox)
+    if hasattr(px, "scatter_map"):
+        fig = px.scatter_map(
+            **common_kwargs,
+            map_style="open-street-map"
+        )
+    else:
+        fig = px.scatter_mapbox(
+            **common_kwargs,
+            mapbox_style="open-street-map"
+        )
 
     fig.update_traces(
         hovertemplate="%{customdata[0]}<extra></extra>",
